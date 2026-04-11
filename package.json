@@ -1,0 +1,18 @@
+{
+  "name": "hotstar-pro-speed",
+  "version": "2.0.0",
+  "description": "Content-aware playback rate control for Hotstar and JioHotstar",
+  "private": true,
+  "scripts": {
+    "zip": "powershell -Command \"Compress-Archive -Path background.js, content.js, manifest.json, styles.css, coverpage.png -DestinationPath hotstar-pro-speed-v2.0.zip -Force\""
+  },
+  "keywords": [
+    "hotstar",
+    "jiohotstar",
+    "speed",
+    "playback",
+    "chrome-extension"
+  ],
+  "author": "",
+  "license": "MIT"
+}
