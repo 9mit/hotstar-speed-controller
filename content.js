@@ -12,7 +12,7 @@
     const DEFAULT_SPEEDS = [1, 1.5, 2, 2.5];
     const REFRESH_MS = 1000;
     const AD_SPEED = 16;
-    const LIVE_THRESHOLD_SEC = 5;
+
     const HYSTERESIS_MS = 2000; // Delay before changing speed again
 
     // Prevent double injection
@@ -27,8 +27,7 @@
         settings: {
             smartAds: true,
             smartMute: true,
-            smartCatchUp: true,
-            bufferGuard: true,
+
             globalSpeed: 1,
             showSpeeds: {} // { showId: speed }
         },
@@ -78,12 +77,7 @@
             } catch(e) {}
 
             // Context Detection (Multi-Signal)
-            const isLiveURL = path.includes('/live/') || path.includes('/sports/') || path.includes('/cricket/');
-            const isLivePlayer = video && (video.duration === Infinity || (video.duration > 18000)); // 5hrs
-            const liveBadge = document.querySelector('.live-badge, [class*="live-tag"], [class*="dv-live-badge"], .live-indicator');
-            const liveText = Array.from(document.querySelectorAll('span, div')).find(el => el.textContent === 'LIVE' && el.offsetWidth > 0);
-
-            return { id, title, isLive: !!(isLiveURL || isLivePlayer || liveBadge || liveText) };
+            return { id, title, isLive: false };
         },
 
         getBufferMargin(video) {
@@ -97,16 +91,7 @@
             return 0;
         },
 
-        getSeekableEdge(video) {
-            if (!video || !video.seekable.length) return video ? video.duration : 0;
-            return video.seekable.end(video.seekable.length - 1);
-        },
 
-        getLiveDistance(video) {
-            if (!video) return 0;
-            const edge = this.getSeekableEdge(video);
-            return Math.max(0, edge - video.currentTime);
-        },
 
         isAdShowing() {
             // Hotstar marks ads with specific containers or "Ad •" text
@@ -159,11 +144,7 @@
             const info = HSE_Intel.getContentInfo();
             
             // 0. Context Swap Reset
-            if (this.currentContext !== info.isLive) {
-                this.currentContext = info.isLive;
-                if (info.isLive) this.setSpeed(1.0, false);
-                HSE_UI.build(); // Refresh UI for new context
-            }
+
 
             // 1. Check for Ads
             if (HSE_Store.settings.smartAds && HSE_Intel.isAdShowing()) {
@@ -172,8 +153,8 @@
                     video.muted = true;
                     video._hse_muted = true;
                 }
-                HSE_UI.updateAdOverlay(true, info.isLive ? 'LIVE MATCH' : 'CONTENT');
-                if (!info.isLive && video.playbackRate !== AD_SPEED) video.playbackRate = AD_SPEED;
+                HSE_UI.updateAdOverlay(true, 'CONTENT');
+                if (video.playbackRate !== AD_SPEED) video.playbackRate = AD_SPEED;
                 return;
             }
 
@@ -185,36 +166,10 @@
             HSE_UI.updateAdOverlay(false);
 
             // 2. Buffer Guard (Preemptive Safety)
-            if (HSE_Store.settings.bufferGuard && info.isLive) {
-                const margin = HSE_Intel.getBufferMargin(video);
-                if (margin < 3 && video.playbackRate > 1.0) {
-                    this.setSpeed(1.0, false);
-                    HSE_UI.updateStatus('🔴 Buffer Guard: Safe Speed', true);
-                    return;
-                }
-            }
 
-            // 3. Smart Catch-up (Adaptive Scaling)
-            if (HSE_Store.settings.smartCatchUp && info.isLive) {
-                const dist = HSE_Intel.getLiveDistance(video);
-                let targetRate = 1.0;
-
-                if (dist > 60) targetRate = 1.25;
-                else if (dist > 20) targetRate = 1.15;
-                else if (dist > 5) targetRate = 1.05;
-                else targetRate = 1.0;
-
-                if (Math.abs(video.playbackRate - targetRate) > 0.01) {
-                    this.setSpeed(targetRate, false);
-                }
-                
-                const status = dist < 2 ? '🔴 LIVE' : `⚡ Catching up... (+${Math.round(dist)}s behind)`;
-                HSE_UI.updateStatus(status, dist < 2);
-                return;
-            }
 
             // 4. Burst mode (VOD ONLY)
-            if (this.isBursting && !info.isLive) {
+            if (this.isBursting) {
                 if (video.playbackRate !== 2.5) video.playbackRate = 2.5;
                 return;
             }
@@ -230,8 +185,7 @@
             this.enforceCount++;
             if (this.enforceCount % 5 === 0) {
                 const margin = HSE_Intel.getBufferMargin(video);
-                const dist = HSE_Intel.getLiveDistance(video);
-                console.log(`[HSE] Context: ${info.isLive ? 'LIVE' : 'VOD'} | Delay: ${Math.round(dist)}s | Buffer: ${Math.round(margin)}s | Speed: ${video.playbackRate}x`);
+                console.log(`[HSE] Context: VOD | Buffer: ${Math.round(margin)}s | Speed: ${video.playbackRate}x`);
             }
         }
     };
@@ -308,31 +262,18 @@
 
             const panel = document.createElement('div');
             panel.id = 'hs-speed-panel';
-            panel.className = info.isLive ? 'mode-live' : 'mode-vod';
+            panel.className = 'mode-vod';
             
-            let controlsHtml = '';
-            if (info.isLive) {
-                controlsHtml = `
-                    <div class="hse-live-controls">
-                        <div id="hse-live-delay-box">
-                            <span class="hse-live-pulse-dot"></span>
-                            <span id="hse-live-delay-text">Syncing...</span>
-                        </div>
-                        <button id="hse-go-live-btn" class="hse-primary-btn">Go Live</button>
-                    </div>
-                `;
-            } else {
-                controlsHtml = `
+            const controlsHtml = `
                     <div class="hs-speed-btn-container">
                         ${DEFAULT_SPEEDS.map(s => `<button class="hs-speed-btn ${Math.abs(s - HSE_Engine.currentSpeed) < 0.01 ? 'is-active' : ''}" data-speed="${s}">${s}x</button>`).join('')}
                     </div>
                 `;
-            }
 
             panel.innerHTML = `
                 <div id="hs-speed-header">
                     <span id="hs-speed-title">${info.title}</span>
-                    <span class="hse-badge">${info.isLive ? 'LIVE' : 'PRO'}</span>
+                    <span class="hse-badge">PRO</span>
                 </div>
                 <div id="hs-speed-status">Initialising...</div>
                 ${controlsHtml}
@@ -344,22 +285,7 @@
                             <span class="hse-slider"></span>
                         </label>
                     </div>
-                    ${info.isLive ? `
-                    <div class="hse-toggle-item">
-                        <span>Adaptive Catch-Up</span>
-                        <label class="hse-switch">
-                            <input type="checkbox" id="hse-smart-catch-up" ${HSE_Store.settings.smartCatchUp ? 'checked' : ''}>
-                            <span class="hse-slider"></span>
-                        </label>
-                    </div>
-                    <div class="hse-toggle-item">
-                        <span>Buffer Guard</span>
-                        <label class="hse-switch">
-                            <input type="checkbox" id="hse-buffer-guard" ${HSE_Store.settings.bufferGuard ? 'checked' : ''}>
-                            <span class="hse-slider"></span>
-                        </label>
-                    </div>
-                    ` : ''}
+
                     <div class="hse-toggle-item">
                         <span>Mute & Hide My Ads</span>
                         <label class="hse-switch">
@@ -374,30 +300,12 @@
             this.panel = panel;
 
             // Events
-            if (!info.isLive) {
-                panel.querySelectorAll('.hs-speed-btn').forEach(btn => {
-                    btn.onclick = () => {
-                        HSE_Engine.setSpeed(parseFloat(btn.dataset.speed));
-                        this.resetHideTimer();
-                    };
-                });
-            } else {
-                panel.querySelector('#hse-go-live-btn').onclick = () => {
-                    const video = HSE_Intel.getVideo();
-                    if (video) video.currentTime = HSE_Intel.getSeekableEdge(video) - 0.5;
+            panel.querySelectorAll('.hs-speed-btn').forEach(btn => {
+                btn.onclick = () => {
+                    HSE_Engine.setSpeed(parseFloat(btn.dataset.speed));
                     this.resetHideTimer();
                 };
-                
-                panel.querySelector('#hse-smart-catch-up').onchange = (e) => {
-                    HSE_Store.settings.smartCatchUp = e.target.checked;
-                    HSE_Store.save();
-                };
-
-                panel.querySelector('#hse-buffer-guard').onchange = (e) => {
-                    HSE_Store.settings.bufferGuard = e.target.checked;
-                    HSE_Store.save();
-                };
-            }
+            });
 
             panel.querySelector('#hse-smart-ads').onchange = (e) => {
                 HSE_Store.settings.smartAds = e.target.checked;
@@ -420,19 +328,11 @@
             });
         },
 
-        updateStatus(text, isSynced = false) {
+        updateStatus(text) {
             const status = document.getElementById('hs-speed-status');
-            const delayText = document.getElementById('hse-live-delay-text');
             
             if (status) {
-                status.textContent = text || (this.currentContext ? '🔴 Live' : `Current Speed: ${HSE_Engine.currentSpeed}x`);
-                status.style.color = isSynced ? 'var(--hse-success)' : '';
-            }
-
-            if (delayText && text.includes('+')) {
-                delayText.textContent = text.match(/\+\d+s/)[0] + ' behind';
-            } else if (delayText && isSynced) {
-                delayText.textContent = 'Synchronized';
+                status.textContent = text || `Current Speed: ${HSE_Engine.currentSpeed}x`;
             }
         },
 

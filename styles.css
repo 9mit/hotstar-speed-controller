@@ -10,7 +10,7 @@
     --hse-text: #ffffff;
     --hse-text-dim: rgba(255, 255, 255, 0.7);
     --hse-radius: 12px;
-    --hse-live: #ff4d4d;
+
 }
 
 #hs-speed-panel {
@@ -67,10 +67,7 @@
     letter-spacing: 0.5px !important;
 }
 
-#hs-speed-panel.mode-live .hse-badge {
-    background: var(--hse-live) !important;
-    box-shadow: 0 0 10px rgba(255, 77, 77, 0.4) !important;
-}
+
 
 #hs-speed-status {
     color: var(--hse-text-dim) !important;
@@ -115,38 +112,14 @@
     cursor: not-allowed !important;
 }
 
-/* Live Mode Controls */
-.hse-live-controls {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 12px !important;
-    margin-bottom: 16px !important;
-}
 
-#hse-live-delay-box {
-    background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid var(--hse-glass-border) !important;
-    border-radius: 10px !important;
-    padding: 12px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 10px !important;
-}
 
-.hse-live-pulse-dot {
-    width: 8px !important;
-    height: 8px !important;
-    background: var(--hse-live) !important;
-    border-radius: 50% !important;
-    box-shadow: 0 0 10px var(--hse-live) !important;
-    animation: hse-live-pulse 1.5s infinite !important;
-}
 
-#hse-live-delay-text {
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: var(--hse-text) !important;
-}
+
+
+
+
+
 
 .hse-primary-btn {
     appearance: none !important;
@@ -172,11 +145,7 @@
     transform: translateY(0) !important;
 }
 
-@keyframes hse-live-pulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(1.2); }
-    100% { opacity: 1; transform: scale(1); }
-}
+
 
 /* Smart Toggles Section */
 .hse-toggles {
