@@ -11,9 +11,7 @@
     const TOGGLE_EVENT = 'hs-speed-toggle-v2';
     const DEFAULT_SPEEDS = [1, 1.5, 2, 2.5];
     const REFRESH_MS = 1000;
-    const AD_SPEED = 16;
 
-    const HYSTERESIS_MS = 2000; // Delay before changing speed again
 
     // Prevent double injection
     if (document.documentElement.dataset[ROOT_FLAG] === 'true') {
@@ -25,9 +23,6 @@
     // --- HSE_Store: Persistence & Settings ---
     const HSE_Store = {
         settings: {
-            smartAds: true,
-            smartMute: true,
-
             globalSpeed: 1,
             showSpeeds: {} // { showId: speed }
         },
@@ -93,14 +88,6 @@
 
 
 
-        isAdShowing() {
-            // Hotstar marks ads with specific containers or "Ad •" text
-            const adOverlay = document.querySelector('.ad-showing, [class*="ad-overlay"], [class*="ad-container"]');
-            const adText = Array.from(document.querySelectorAll('div, span'))
-                .find(el => (el.textContent.includes('Ad •') || el.textContent.includes('Advertisement')) && el.offsetWidth > 0);
-            return !!(adOverlay || adText);
-        },
-
         getVideo() {
             const videos = Array.from(document.querySelectorAll('video')).filter(v => v.isConnected && v.readyState >= 1);
             if (videos.length === 0) return Array.from(document.querySelectorAll('video'))[0] || null;
@@ -112,8 +99,6 @@
     const HSE_Engine = {
         currentSpeed: 1,
         activeVideo: null,
-        isBursting: false,
-        lastSpeedChange: 0,
         currentContext: null,
         enforceCount: 0,
 
@@ -121,13 +106,9 @@
             const video = HSE_Intel.getVideo();
             if (!video) return;
 
-            // Hysteresis (only for automatic changes, not user clicks)
-            if (!isPersistent && (Date.now() - this.lastSpeedChange < HYSTERESIS_MS)) return;
-
             this.currentSpeed = speed;
             video.playbackRate = speed;
             video.defaultPlaybackRate = speed;
-            this.lastSpeedChange = Date.now();
             
             if (isPersistent) {
                 const info = HSE_Intel.getContentInfo();
@@ -143,37 +124,6 @@
 
             const info = HSE_Intel.getContentInfo();
             
-            // 0. Context Swap Reset
-
-
-            // 1. Check for Ads
-            if (HSE_Store.settings.smartAds && HSE_Intel.isAdShowing()) {
-                // Muting logic
-                if (HSE_Store.settings.smartMute && !video.muted) {
-                    video.muted = true;
-                    video._hse_muted = true;
-                }
-                HSE_UI.updateAdOverlay(true, 'CONTENT');
-                if (video.playbackRate !== AD_SPEED) video.playbackRate = AD_SPEED;
-                return;
-            }
-
-            // Reset Ad state
-            if (video._hse_muted) {
-                video.muted = false;
-                video._hse_muted = false;
-            }
-            HSE_UI.updateAdOverlay(false);
-
-            // 2. Buffer Guard (Preemptive Safety)
-
-
-            // 4. Burst mode (VOD ONLY)
-            if (this.isBursting) {
-                if (video.playbackRate !== 2.5) video.playbackRate = 2.5;
-                return;
-            }
-
             // 5. Standard selected speed
             const target = this.currentSpeed;
             if (Math.abs(video.playbackRate - target) > 0.01) {
@@ -198,7 +148,6 @@
 
         init() {
             this.createIndicator();
-            this.createAdOverlay();
             window.addEventListener(TOGGLE_EVENT, () => this.toggle());
         },
 
@@ -208,33 +157,7 @@
             document.body.appendChild(ind);
         },
 
-        createAdOverlay() {
-            const overlay = document.createElement('div');
-            overlay.id = 'hse-ad-blocker-overlay';
-            overlay.innerHTML = `
-                <div class="hse-ad-content">
-                    <div class="hse-ad-icon">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                    </div>
-                    <div class="hse-ad-title">Blocking Ad</div>
-                    <div class="hse-ad-subtitle" id="hse-ad-type">Match will resume shortly...</div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-        },
 
-        updateAdOverlay(visible, type = '') {
-            const overlay = document.getElementById('hse-ad-blocker-overlay');
-            const typeEl = document.getElementById('hse-ad-type');
-            if (!overlay) return;
-
-            if (visible) {
-                overlay.classList.add('is-visible');
-                if (typeEl) typeEl.textContent = `${type} will resume shortly...`;
-            } else {
-                overlay.classList.remove('is-visible');
-            }
-        },
 
         flash(text, isLong = false) {
             const ind = document.getElementById('hse-flash-indicator');
@@ -277,23 +200,7 @@
                 </div>
                 <div id="hs-speed-status">Initialising...</div>
                 ${controlsHtml}
-                <div class="hse-toggles">
-                    <div class="hse-toggle-item">
-                        <span>Smart Ad Control</span>
-                        <label class="hse-switch">
-                            <input type="checkbox" id="hse-smart-ads" ${HSE_Store.settings.smartAds ? 'checked' : ''}>
-                            <span class="hse-slider"></span>
-                        </label>
-                    </div>
 
-                    <div class="hse-toggle-item">
-                        <span>Mute & Hide My Ads</span>
-                        <label class="hse-switch">
-                            <input type="checkbox" id="hse-smart-mute" ${HSE_Store.settings.smartMute ? 'checked' : ''}>
-                            <span class="hse-slider"></span>
-                        </label>
-                    </div>
-                </div>
             `;
 
             document.body.appendChild(panel);
@@ -307,15 +214,7 @@
                 };
             });
 
-            panel.querySelector('#hse-smart-ads').onchange = (e) => {
-                HSE_Store.settings.smartAds = e.target.checked;
-                HSE_Store.save();
-            };
 
-            panel.querySelector('#hse-smart-mute').onchange = (e) => {
-                HSE_Store.settings.smartMute = e.target.checked;
-                HSE_Store.save();
-            };
 
             this.resetHideTimer();
         },
@@ -361,13 +260,6 @@
             window.addEventListener('keydown', (e) => {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-                // Burst mode: Hold Shift
-                if (e.key === 'Shift') {
-                    HSE_Engine.isBursting = true;
-                    HSE_UI.flash('BURST: 2.5x');
-                    return;
-                }
-
                 // Increments: [ and ]
                 if (e.key === '[') {
                     HSE_Engine.setSpeed(Math.max(0.1, HSE_Engine.currentSpeed - 0.1));
@@ -376,12 +268,7 @@
                 }
             });
 
-            window.addEventListener('keyup', (e) => {
-                if (e.key === 'Shift') {
-                    HSE_Engine.isBursting = false;
-                    HSE_UI.flash('Burst Ended');
-                }
-            });
+
         }
     };
 
