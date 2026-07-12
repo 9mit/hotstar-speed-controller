@@ -1,30 +1,143 @@
 /**
- * Hotstar Pro 'Smart Assistant' (v2.0)
- * Intelligent, modular playback engine for Hotstar & JioHotstar.
+ * Stream Pro Speed (v2.1)
+ * Playback rate control for Hotstar, JioHotstar, Netflix, and Prime Video.
  */
 (function () {
     'use strict';
 
-    // --- CONFIGURATION & CONSTANTS ---
-    const APP_NAME = 'Hotstar Pro Speed';
+    const APP_NAME = 'Stream Pro Speed';
     const ROOT_FLAG = 'hsSpeedBootedV2';
     const TOGGLE_EVENT = 'hs-speed-toggle-v2';
     const DEFAULT_SPEEDS = [1, 1.5, 2, 2.5];
     const REFRESH_MS = 1000;
+    const MAX_SPEED = 16;
 
-
-    // Prevent double injection
     if (document.documentElement.dataset[ROOT_FLAG] === 'true') {
         window.dispatchEvent(new CustomEvent(TOGGLE_EVENT));
         return;
     }
     document.documentElement.dataset[ROOT_FLAG] = 'true';
 
+    // --- Shared video discovery (incl. open shadow roots) ---
+    function collectVideos(root, results) {
+        if (!root) return results;
+        try {
+            root.querySelectorAll('video').forEach((v) => results.push(v));
+            root.querySelectorAll('*').forEach((el) => {
+                if (el.shadowRoot) collectVideos(el.shadowRoot, results);
+            });
+        } catch (_) { /* cross-origin or closed shadow roots */ }
+        return results;
+    }
+
+    function pickLargestVideo(videos) {
+        const connected = videos.filter((v) => v.isConnected && v.readyState >= 1);
+        const pool = connected.length ? connected : videos.filter((v) => v.isConnected);
+        if (!pool.length) return videos[0] || null;
+        return pool.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0];
+    }
+
+    function cleanTitle(raw, suffixes) {
+        let title = (raw || '').trim();
+        for (const suffix of suffixes) {
+            title = title.replace(suffix, '').trim();
+        }
+        return title || 'Current Video';
+    }
+
+    // --- Platform adapters ---
+    const Platforms = {
+        hotstar: {
+            id: 'hotstar',
+            label: 'Hotstar',
+            match(hostname) {
+                return /(^|\.)hotstar\.com$|(^|\.)jiohotstar\.com$/i.test(hostname);
+            },
+            getContentId(pathname) {
+                const match = pathname.match(/\/([0-9]{8,15})\/watch/);
+                return match ? match[1] : 'generic';
+            },
+            getTitle() {
+                return cleanTitle(document.title, [
+                    /\s*-\s*(JioHotstar|Disney\+ Hotstar|Hotstar).*$/i
+                ]);
+            }
+        },
+
+        netflix: {
+            id: 'netflix',
+            label: 'Netflix',
+            match(hostname) {
+                return /(^|\.)netflix\.com$/i.test(hostname);
+            },
+            getContentId(pathname) {
+                const watch = pathname.match(/\/watch\/(\d+)/);
+                if (watch) return watch[1];
+                const title = pathname.match(/\/title\/(\d+)/);
+                if (title) return title[1];
+                return 'generic';
+            },
+            getTitle() {
+                return cleanTitle(document.title, [
+                    /\s*\|\s*Netflix\s*$/i,
+                    /\s*-\s*Netflix\s*$/i
+                ]);
+            }
+        },
+
+        prime: {
+            id: 'prime',
+            label: 'Prime Video',
+            match(hostname, pathname) {
+                if (/(^|\.)primevideo\.com$/i.test(hostname)) return true;
+                if (/(^|\.)amazon\./i.test(hostname)) {
+                    return /\/gp\/video\b|\/detail\//i.test(pathname || '');
+                }
+                return false;
+            },
+            getContentId(pathname) {
+                const detail = pathname.match(/\/(?:gp\/video\/)?detail\/([A-Z0-9]+)/i);
+                if (detail) return detail[1];
+                const watch = pathname.match(/\/(?:region\/[^/]+\/)?video\/detail\/([A-Z0-9]+)/i);
+                if (watch) return watch[1];
+                const asins = pathname.match(/\/([A-Z0-9]{10})(?:\/|$|\?)/);
+                if (asins) return asins[1];
+                return 'generic';
+            },
+            getTitle() {
+                return cleanTitle(document.title, [
+                    /\s*:\s*Prime Video\s*$/i,
+                    /\s*-\s*Prime Video\s*$/i,
+                    /\s*\|\s*Prime Video\s*$/i,
+                    /\s*:\s*Amazon\.co.*$/i,
+                    /\s*-\s*Amazon\.co.*$/i,
+                    /\s*:\s*Amazon\.com.*$/i,
+                    /\s*-\s*Amazon\.com.*$/i
+                ]);
+            }
+        }
+    };
+
+    function detectPlatform() {
+        const hostname = window.location.hostname;
+        const pathname = window.location.pathname;
+        for (const platform of Object.values(Platforms)) {
+            if (platform.match(hostname, pathname)) return platform;
+        }
+        return null;
+    }
+
+    const Platform = detectPlatform();
+    if (!Platform) {
+        console.warn(`[${APP_NAME}] Unsupported host: ${window.location.hostname}`);
+        return;
+    }
+
     // --- HSE_Store: Persistence & Settings ---
     const HSE_Store = {
         settings: {
             globalSpeed: 1,
-            showSpeeds: {} // { showId: speed }
+            showSpeeds: {}
         },
 
         async init() {
@@ -48,12 +161,24 @@
             });
         },
 
+        storageKey(showId) {
+            return `${Platform.id}:${showId}`;
+        },
+
         getSpeedForShow(showId) {
-            return this.settings.showSpeeds[showId] || this.settings.globalSpeed;
+            const key = this.storageKey(showId);
+            // Prefer platform-namespaced key; fall back to bare Hotstar IDs for migration
+            if (this.settings.showSpeeds[key] != null) {
+                return this.settings.showSpeeds[key];
+            }
+            if (Platform.id === 'hotstar' && this.settings.showSpeeds[showId] != null) {
+                return this.settings.showSpeeds[showId];
+            }
+            return this.settings.globalSpeed;
         },
 
         setSpeedForShow(showId, speed) {
-            this.settings.showSpeeds[showId] = speed;
+            this.settings.showSpeeds[this.storageKey(showId)] = speed;
             this.save();
         }
     };
@@ -61,18 +186,13 @@
     // --- HSE_Intel: DOM & Pattern Analysis ---
     const HSE_Intel = {
         getContentInfo() {
-            const video = this.getVideo();
             const path = window.location.pathname;
-            const match = path.match(/\/([0-9]{8,15})\/watch/);
-            const id = match ? match[1] : 'generic';
-            
+            const id = Platform.getContentId(path);
             let title = 'Current Video';
             try {
-                title = document.title.replace(/\s*-\s*(JioHotstar|Disney\+ Hotstar|Hotstar).*$/i, '').trim() || 'Current Video';
-            } catch(e) {}
-
-            // Context Detection (Multi-Signal)
-            return { id, title, isLive: false };
+                title = Platform.getTitle();
+            } catch (_) {}
+            return { id, title, platform: Platform.id, isLive: false };
         },
 
         getBufferMargin(video) {
@@ -86,12 +206,8 @@
             return 0;
         },
 
-
-
         getVideo() {
-            const videos = Array.from(document.querySelectorAll('video')).filter(v => v.isConnected && v.readyState >= 1);
-            if (videos.length === 0) return Array.from(document.querySelectorAll('video'))[0] || null;
-            return videos.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0];
+            return pickLargestVideo(collectVideos(document, []));
         }
     };
 
@@ -101,41 +217,52 @@
         activeVideo: null,
         currentContext: null,
         enforceCount: 0,
+        lastContentId: null,
 
         setSpeed(speed, isPersistent = true) {
             const video = HSE_Intel.getVideo();
             if (!video) return;
 
-            this.currentSpeed = speed;
-            video.playbackRate = speed;
-            video.defaultPlaybackRate = speed;
-            
+            const clamped = Math.min(MAX_SPEED, Math.max(0.1, speed));
+            this.currentSpeed = clamped;
+            video.playbackRate = clamped;
+            video.defaultPlaybackRate = clamped;
+
             if (isPersistent) {
                 const info = HSE_Intel.getContentInfo();
-                HSE_Store.setSpeedForShow(info.id, speed);
+                HSE_Store.setSpeedForShow(info.id, clamped);
                 HSE_UI.update();
-                HSE_UI.flash(speed + 'x');
+                HSE_UI.flash(clamped + 'x');
             }
+        },
+
+        syncContentSpeed() {
+            const info = HSE_Intel.getContentInfo();
+            if (info.id === this.lastContentId) return;
+            this.lastContentId = info.id;
+            const saved = HSE_Store.getSpeedForShow(info.id);
+            this.setSpeed(saved, false);
+            HSE_UI.update();
         },
 
         enforce() {
             const video = HSE_Intel.getVideo();
             if (!video) return;
 
-            const info = HSE_Intel.getContentInfo();
-            
-            // 5. Standard selected speed
+            this.syncContentSpeed();
+
             const target = this.currentSpeed;
             if (Math.abs(video.playbackRate - target) > 0.01) {
                 this.setSpeed(target, false);
             }
             HSE_UI.updateStatus();
 
-            // 6. Diagnostics
             this.enforceCount++;
             if (this.enforceCount % 5 === 0) {
                 const margin = HSE_Intel.getBufferMargin(video);
-                console.log(`[HSE] Context: VOD | Buffer: ${Math.round(margin)}s | Speed: ${video.playbackRate}x`);
+                console.log(
+                    `[HSE] ${Platform.label} | Buffer: ${Math.round(margin)}s | Speed: ${video.playbackRate}x`
+                );
             }
         }
     };
@@ -157,8 +284,6 @@
             document.body.appendChild(ind);
         },
 
-
-
         flash(text, isLong = false) {
             const ind = document.getElementById('hse-flash-indicator');
             if (!ind) return;
@@ -179,42 +304,41 @@
 
         build() {
             if (this.panel) this.panel.remove();
-            
+
             const info = HSE_Intel.getContentInfo();
             HSE_Engine.currentSpeed = HSE_Store.getSpeedForShow(info.id);
+            HSE_Engine.lastContentId = info.id;
 
             const panel = document.createElement('div');
             panel.id = 'hs-speed-panel';
             panel.className = 'mode-vod';
-            
+
             const controlsHtml = `
                     <div class="hs-speed-btn-container">
-                        ${DEFAULT_SPEEDS.map(s => `<button class="hs-speed-btn ${Math.abs(s - HSE_Engine.currentSpeed) < 0.01 ? 'is-active' : ''}" data-speed="${s}">${s}x</button>`).join('')}
+                        ${DEFAULT_SPEEDS.map((s) =>
+                            `<button class="hs-speed-btn ${Math.abs(s - HSE_Engine.currentSpeed) < 0.01 ? 'is-active' : ''}" data-speed="${s}">${s}x</button>`
+                        ).join('')}
                     </div>
                 `;
 
             panel.innerHTML = `
                 <div id="hs-speed-header">
                     <span id="hs-speed-title">${info.title}</span>
-                    <span class="hse-badge">PRO</span>
+                    <span class="hse-badge">${Platform.label}</span>
                 </div>
                 <div id="hs-speed-status">Initialising...</div>
                 ${controlsHtml}
-
             `;
 
             document.body.appendChild(panel);
             this.panel = panel;
 
-            // Events
-            panel.querySelectorAll('.hs-speed-btn').forEach(btn => {
+            panel.querySelectorAll('.hs-speed-btn').forEach((btn) => {
                 btn.onclick = () => {
                     HSE_Engine.setSpeed(parseFloat(btn.dataset.speed));
                     this.resetHideTimer();
                 };
             });
-
-
 
             this.resetHideTimer();
         },
@@ -222,14 +346,17 @@
         update() {
             if (!this.panel) return;
             const speed = HSE_Engine.currentSpeed;
-            this.panel.querySelectorAll('.hs-speed-btn').forEach(btn => {
+            this.panel.querySelectorAll('.hs-speed-btn').forEach((btn) => {
                 btn.classList.toggle('is-active', Math.abs(parseFloat(btn.dataset.speed) - speed) < 0.01);
             });
+            const titleEl = document.getElementById('hs-speed-title');
+            if (titleEl) {
+                titleEl.textContent = HSE_Intel.getContentInfo().title;
+            }
         },
 
         updateStatus(text) {
             const status = document.getElementById('hs-speed-status');
-            
             if (status) {
                 status.textContent = text || `Current Speed: ${HSE_Engine.currentSpeed}x`;
             }
@@ -254,53 +381,53 @@
         }
     };
 
-    // --- HSE_Input: Keyboard Ninja ---
+    // --- HSE_Input: Keyboard ---
     const HSE_Input = {
         init() {
             window.addEventListener('keydown', (e) => {
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                    return;
+                }
 
-                // Increments: [ and ]
                 if (e.key === '[') {
-                    HSE_Engine.setSpeed(Math.max(0.1, HSE_Engine.currentSpeed - 0.1));
+                    HSE_Engine.setSpeed(Math.max(0.1, +(HSE_Engine.currentSpeed - 0.1).toFixed(1)));
                 } else if (e.key === ']') {
-                    HSE_Engine.setSpeed(Math.min(16, HSE_Engine.currentSpeed + 0.1));
+                    HSE_Engine.setSpeed(Math.min(MAX_SPEED, +(HSE_Engine.currentSpeed + 0.1).toFixed(1)));
                 }
             });
-
-
         }
     };
 
     // --- INITIALIZATION ---
     async function init() {
-        console.log('[HSE] Initialising Hotstar Pro Speed...');
+        console.log(`[HSE] Initialising ${APP_NAME} on ${Platform.label}...`);
         await HSE_Store.init();
         HSE_UI.init();
         HSE_Input.init();
 
-        // Background loop
         setInterval(() => {
             HSE_Engine.enforce();
         }, REFRESH_MS);
 
-        // Auto-load speed on navigation
         const loadInitialSpeed = () => {
-            const info = HSE_Intel.getContentInfo();
-            const lastSpeed = HSE_Store.getSpeedForShow(info.id);
-            if (lastSpeed !== HSE_Engine.currentSpeed) {
-                HSE_Engine.setSpeed(lastSpeed, false);
-            }
+            HSE_Engine.lastContentId = null;
+            HSE_Engine.syncContentSpeed();
         };
 
         window.addEventListener('popstate', loadInitialSpeed);
-        // Patching history for Hotstar SPA
+
         const originalPush = history.pushState;
-        history.pushState = function() {
+        history.pushState = function () {
             originalPush.apply(this, arguments);
             setTimeout(loadInitialSpeed, 500);
         };
-        
+
+        const originalReplace = history.replaceState;
+        history.replaceState = function () {
+            originalReplace.apply(this, arguments);
+            setTimeout(loadInitialSpeed, 500);
+        };
+
         loadInitialSpeed();
     }
 
@@ -309,5 +436,4 @@
     } else {
         init();
     }
-
 })();

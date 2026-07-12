@@ -1,4 +1,37 @@
-const SUPPORTED_HOSTS = ['hotstar.com', 'jiohotstar.com'];
+const STREAM_DOMAINS = new Set([
+    'hotstar.com',
+    'jiohotstar.com',
+    'netflix.com',
+    'primevideo.com'
+]);
+
+const AMAZON_DOMAINS = new Set([
+    'amazon.com',
+    'amazon.in',
+    'amazon.co.uk',
+    'amazon.de',
+    'amazon.ca',
+    'amazon.com.au',
+    'amazon.co.jp',
+    'amazon.fr',
+    'amazon.it',
+    'amazon.es',
+    'amazon.com.br',
+    'amazon.com.mx'
+]);
+
+function getRegistrableDomain(hostname) {
+    const parts = hostname.toLowerCase().split('.').filter(Boolean);
+    if (parts.length < 2) return hostname.toLowerCase();
+
+    // Handle common multi-part TLDs (co.uk, com.au, co.jp, com.br, com.mx)
+    const multiPartTlds = new Set(['co.uk', 'com.au', 'co.jp', 'com.br', 'com.mx']);
+    const lastTwo = parts.slice(-2).join('.');
+    if (parts.length >= 3 && multiPartTlds.has(lastTwo)) {
+        return parts.slice(-3).join('.');
+    }
+    return lastTwo;
+}
 
 function isSupportedTab(tab) {
     if (!tab || !tab.id || !tab.url) {
@@ -7,8 +40,16 @@ function isSupportedTab(tab) {
 
     try {
         const parsedUrl = new URL(tab.url);
-        const domain = parsedUrl.hostname.split('.').slice(-2).join('.');
-        return SUPPORTED_HOSTS.includes(domain);
+        if (parsedUrl.protocol !== 'https:') return false;
+
+        const domain = getRegistrableDomain(parsedUrl.hostname);
+        if (STREAM_DOMAINS.has(domain)) return true;
+
+        if (AMAZON_DOMAINS.has(domain)) {
+            return /\/gp\/video\b|\/detail\//i.test(parsedUrl.pathname);
+        }
+
+        return false;
     } catch (error) {
         return false;
     }
@@ -20,20 +61,17 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     try {
-        // Check if content script is already injected
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: () => !!document.documentElement.dataset.hsSpeedBootedV2
         });
 
         if (result && result.result) {
-            // If already injected, just send toggle message
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: () => window.dispatchEvent(new CustomEvent('hs-speed-toggle-v2'))
             });
         } else {
-            // First time injection
             await chrome.scripting.insertCSS({
                 target: { tabId: tab.id },
                 files: ['styles.css']
@@ -45,6 +83,6 @@ chrome.action.onClicked.addListener(async (tab) => {
             });
         }
     } catch (error) {
-        console.error('Hotstar Pro Speed activation failed:', error);
+        console.error('Stream Pro Speed activation failed:', error);
     }
 });

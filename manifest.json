@@ -1,18 +1,46 @@
 {
   "manifest_version": 3,
-  "name": "Hotstar Pro Speed",
-  "version": "2.0",
-  "description": "Premium, Live-Aware Playback Assistant for Hotstar and JioHotstar",
+  "name": "Stream Pro Speed",
+  "version": "2.1",
+  "description": "Playback speed control for Hotstar, JioHotstar, Netflix, and Prime Video",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://*.hotstar.com/*",
-    "https://*.jiohotstar.com/*"
+    "https://*.jiohotstar.com/*",
+    "https://*.netflix.com/*",
+    "https://*.primevideo.com/*",
+    "https://*.amazon.com/gp/video/*",
+    "https://*.amazon.in/gp/video/*",
+    "https://*.amazon.co.uk/gp/video/*",
+    "https://*.amazon.de/gp/video/*",
+    "https://*.amazon.ca/gp/video/*",
+    "https://*.amazon.com.au/gp/video/*",
+    "https://*.amazon.co.jp/gp/video/*",
+    "https://*.amazon.fr/gp/video/*",
+    "https://*.amazon.it/gp/video/*",
+    "https://*.amazon.es/gp/video/*",
+    "https://*.amazon.com.br/gp/video/*",
+    "https://*.amazon.com.mx/gp/video/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://*.hotstar.com/*",
-        "https://*.jiohotstar.com/*"
+        "https://*.jiohotstar.com/*",
+        "https://*.netflix.com/*",
+        "https://*.primevideo.com/*",
+        "https://*.amazon.com/gp/video/*",
+        "https://*.amazon.in/gp/video/*",
+        "https://*.amazon.co.uk/gp/video/*",
+        "https://*.amazon.de/gp/video/*",
+        "https://*.amazon.ca/gp/video/*",
+        "https://*.amazon.com.au/gp/video/*",
+        "https://*.amazon.co.jp/gp/video/*",
+        "https://*.amazon.fr/gp/video/*",
+        "https://*.amazon.it/gp/video/*",
+        "https://*.amazon.es/gp/video/*",
+        "https://*.amazon.com.br/gp/video/*",
+        "https://*.amazon.com.mx/gp/video/*"
       ],
       "css": ["styles.css"],
       "js": ["content.js"],
@@ -23,7 +51,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Hotstar Pro Speed",
+    "default_title": "Stream Pro Speed",
     "default_icon": "coverpage.png"
   },
   "icons": {
