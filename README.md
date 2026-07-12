@@ -22,6 +22,16 @@ Stream Pro Speed is a browser extension for playback rate control on **Disney+ H
 
 ---
 
+## Privacy & security
+
+- **No network egress**: The extension does not call remote APIs, analytics, or beacons. Nothing is uploaded.
+- **Local storage only**: Speeds are saved in `chrome.storage.local` (not sync). Payload is allowlisted to `globalSpeed` and numeric `showSpeeds` keys.
+- **No titles or URLs persisted**: Page titles are display-only in the overlay UI; cookies, tokens, and account data are never read or stored.
+- **Safe UI rendering**: Overlay text uses DOM/`textContent` (no title interpolation into HTML).
+- **Minimal permissions**: `activeTab`, `scripting`, `storage`, plus host access limited to the supported OTT origins.
+
+---
+
 ## Usage
 
 1. Open a supported streaming site and start a video.
@@ -40,7 +50,8 @@ Supported hosts:
 
 - **Platform adapters** detect the host and extract content IDs from URL patterns (Hotstar watch IDs, Netflix title/watch IDs, Prime ASINs).
 - **Enforcement loop** re-applies `playbackRate` every second if the site player resets it.
-- **Storage** uses `chrome.storage.local` with keys like `netflix:80057281` so platforms never collide.
+- **Storage keys** look like `netflix:80057281` so platforms never collide; IDs and speeds are sanitized before write.
+- **Files**: `content.js` (player UI + persistence), `background.js` (toolbar activation), `manifest.json` (MV3).
 
 ---
 
@@ -56,7 +67,7 @@ Supported hosts:
 
 ## Contributing
 
-Contributions are welcome. Keep platform-specific URL/title/video logic inside the adapters in `content.js`.
+Contributions are welcome. Keep platform-specific URL/title/video logic inside the adapters in `content.js`. Do not add network calls, telemetry, or broader host permissions without a clear need.
 
 ---
 *Disclaimer: This project is an independent tool and is not affiliated with Disney, Hotstar, Jio, Netflix, Amazon, or Prime Video.*
