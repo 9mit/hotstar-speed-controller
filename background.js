@@ -82,7 +82,7 @@ chrome.action.onClicked.addListener(async (tab) => {
                 files: ['content.js']
             });
         }
-    } catch (error) {
-        console.error('Stream Pro Speed activation failed:', error);
+    } catch (_error) {
+        // Fail closed: do not log tab URLs, titles, or error payloads (can contain PII).
     }
 });
